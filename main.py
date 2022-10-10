@@ -1,35 +1,17 @@
 from flask import Flask
 from flask_restful import Api, Resource
 from flask import request
+from flask import send_file
+from setter import setter
+from user_already import user_already
+from users import *
 
 app = Flask(__name__)
 api = Api(app)
 
-users = {"Veronika Lolova": {"iss": 0, "rez": 0}, "Anna Pospisilova": {"iss": 0, "rez": 0}, "Anna Zemanova": {"iss": 0, "rez": 0}}
 users_in_work = []
 
 class User(Resource):
-    #todo resetování bych mohl vyřešit na základě porovnání self.date s today, které budou poskytovat SmartButtons a zde bude uloženo poslední datum
-    #todo vyhodnotit, zda se nejedná o kradače - list mailů - tyto rezervace by se vůbec nezapočítávali do rozhozu i přes to, že budou rozhozeny, bude např vrace příznak kradač
-    #todo časem můžu přejit k nějakému analyzátoru textu, který bude vyhodnocovat *VR případně další věci, co se dají zautomatizovat (např. duplicity apod.)
-    #todo nutno vyřešit, pokud bude chtít hodit někdo konkrétní počet nějakému zaměstnanci
-    #todo kontrola mobilní aplikace a podobných hovadin, zda je vyhodnocování správně - mobilní app vyřešena přes tel číslo
-    #todo nevím jak vyřešit ukládání dat do databáze
-    #todo rovnou mazat propadlé rezervace a NDC-čka, který se mají smazat - na vyřešení ve smartbuttons přímo
-    #todo počet rezervací, které byly ráno na 80
-
-    def user_already(self, prgt, hte):
-        for user_name in users:
-            if user_name in prgt.lower().title():
-                if hte == "True":
-                    hte_word = "letenka"
-                    users[user_name]["iss"] += 1
-                else:
-                    hte_word = "rezervace"
-                    users[user_name]["rez"] += 1
-                print(f"Tato {hte_word} již byla přiřazena a proto bude přiřazena {user_name}")
-                return user_name
-
     def get(self):
         global users_in_work
         query_args = request.args
@@ -39,79 +21,176 @@ class User(Resource):
         url_path = request.path
         print(f"{url} {url_root} {url_path}")
 
-        #POST METODY
+        # POST METODY
         if "in_work" in query_keys:
             users_in_work = query_args["in_work"].split(";")
             return users_in_work
 
-        #GET METODY
-        #VRACÍ VŠECHNY EXISTUJÍCÍ UŽIVATELE - VE SMARTBUTTONS SE VYTVÁŘÍ SEZNAM, ZE KTERÉHO VYBÍRÁ UŽIVATEL KDO JE V PRÁCI
+        # GET METODY
+        # VRACÍ VŠECHNY EXISTUJÍCÍ UŽIVATELE - VE SMARTBUTTONS SE VYTVÁŘÍ SEZNAM, ZE KTERÉHO VYBÍRÁ UŽIVATEL KDO JE V PRÁCI
         if url == f"{url_root}users":
-            list_of_users = [user for user in users.keys()]
-            return list_of_users
+            return all_users()
 
-        # prochází uživatele, kteří jsou v práci, vytváří dict buď iss nebo rez a následně vyhodnocuje, kdo má nejméně
-        #VRACÍ CELÉ JMÉNO UŽIVATELE ABY MOHL BÝT SPUŠTĚN SMARTBUTTON STEJNÉHO JMÉNA
+        # prochází uživatele users_in_work, a dle podmínek vyhodnocuje, kdo má nejméně daného typu
+        # VRACÍ CELÉ JMÉNO UŽIVATELE ABY MOHL BÝT SPUŠTĚN SMARTBUTTON STEJNÉHO JMÉNA
         if "HTE" in query_keys:
             hte = query_args["HTE"]
             prgt = query_args["PRGT"]
-        #PŘIDĚLENÍ REZERVACE KONKRÉTNÍMU UŽIVATELI
-            if "user" in query_keys:
-                user = query_args["user"]
-                if hte == "False":
-                    users[user]["rez"] += 1
-                    hte_word = "rezervaci"
-                else:
-                    users[user]["iss"] += 1
-                    hte_word = "letenku"
-                return [f"""Tuto {hte_word} by dostal {query_args["user"]}"""]
-        #AUTOMATICKÝ ROZHOZ
-            else:
-                temp_users = {}
+            email = query_args["EMAIL"].lower()
+            segments = int(query_args["SEGMENTS"])
+            segment_status = query_args["SEGMENT_STATUS"]
+            temp_users = {}
+            # pokud je lowcost
+            if segment_status in ["AK", "BK"]:
+                # pokud nemá uživatele == if
                 if "STUDENT" not in prgt:
-                    if hte == "True":
-                        for user in users_in_work:
-                            temp_users[user] = users[user]["iss"]
-                        min_iss = min(temp_users, key=temp_users.get)
-                        users[min_iss]["iss"] += 1
-                        print(f"Tuto letenku by dostal {min_iss}")
-                        return [min_iss]
-                    elif hte == "False":
-                        for user in users_in_work:
-                            temp_users[user] = users[user]["rez"]
-                        min_rez = min(temp_users, key=temp_users.get)
-                        users[min_rez]["rez"] += 1
-                        print(f"Tuto rezervaci by dostal {min_rez}")
-                        return [min_rez]
-        # AUTOMATICKÉ PŘIŘAZENÍ JIŽ PODEPSANÉ REZERVACE / LETENKY
+                    return setter(users_in_work, temp_users, "lowcost")
+                # pokud již má uživatele
                 else:
-                    user_name = self.user_already(prgt, hte)
-                    return [user_name]
-
-        #VRÁTÍ UŽIVATELE A POČET REZERVACÍ A LETENEK JAKO VALUE**KEY POKUD NENÍ ZADÁN JINÝ PARAMETR
-        name = query_args["name"].replace("+", " ")
-        print(name)
-        if name not in users.keys():
-            return "User does not exist"
-        elif url == f"""{url_root}users?name={name.replace(" ", "+")}""":
-            print([f"user**{name}", f"""iss**{users[name]["iss"]}""", f"""rez**{users[name]["rez"]}"""])
-            return [f"user**{name}",f"""iss**{users[name]["iss"]}""", f"""rez**{users[name]["rez"]}"""]
+                    return user_already(prgt, "lowcost")
+            # pokud není lowcost
+            else:
+                # zrušena a není přiřazena
+                if segments == 0 and "STUDENT" not in prgt:
+                    return setter(users_in_work, temp_users, "canceled")
+                # nezrušena a nepřiřazena a není fraud
+                elif "STUDENT" not in prgt and email not in fraud_emails():
+                    # letenka
+                    if hte == "True":
+                        return setter(users_in_work, temp_users, "iss")
+                    # rezervace
+                    elif hte == "False":
+                        return setter(users_in_work, temp_users, "rez")
+                # je podeřelý e-mail
+                elif email in fraud_emails():
+                    return setter(users_in_work, temp_users, "fraud")
+                # je již přiřazena a nejedná se o lowcost
+                else:
+                    return user_already(prgt, hte)
 
 api.add_resource(User, "/users")
 
 class Stats(Resource):
     def get(self):
-        """
-        ZOBRAZUJE STATISTIKY UŽIVATELŮ
-        :return: list
-        """
-        users_stats = []
-        for name in users:
-            users_stats.append(f"""{name}:\nVystaveno: {users[name]["iss"]}\nNevystaveno: {users[name]["rez"]}""")
-        return users_stats
+        return statistics()
 
 api.add_resource(Stats, "/stats")
 
+class DatabaseStats(Resource):
+    def get(self):
+        query_args = request.args
+        start = query_args["start"]
+        end = query_args["end"]
+        return filter_database(start, end)
+
+api.add_resource(DatabaseStats, "/databasestats")
+
+class StatisticsByDate(Resource):
+    def get(self):
+        query_args = request.args
+        start = query_args["start"]
+        end = query_args["end"]
+        return filter_by_date(start, end)
+
+api.add_resource(StatisticsByDate, "/statisticsbydate")
+
+class StatsSave(Resource):
+    def get(self):
+        save_stats()
+        return ["Statistiky uloženy do databáze"]
+
+api.add_resource(StatsSave, "/statssave")
+
+class SaveMorningStats(Resource):
+    def get(self):
+        save_morning_stats()
+        return ["Ranní statistiky uloženy do databáze"]
+
+api.add_resource(SaveMorningStats, "/savemorningstats")
+
+class AddFraud(Resource):
+    def get(self):
+        query_args = request.args
+        fraud_email = query_args["fraud_email"]
+        return add_fraud(fraud_email)
+
+api.add_resource(AddFraud, "/addfraud")
+
+class ShowFraud(Resource):
+    def get(self):
+        return fraud_emails()
+
+api.add_resource(ShowFraud, "/showfraud")
+
+class DelFraud(Resource):
+    def get(self):
+        query_args = request.args
+        fraud_email = query_args["fraud_email"]
+        return del_fraud(fraud_email)
+
+api.add_resource(DelFraud, "/delfraud")
+
+class AddUser(Resource):
+    def get(self):
+        query_args = request.args
+        password = int(query_args["password"])
+        new_user = query_args["new_user"].lower().title()
+        new_svcb = int(query_args["new_svcb"])
+        return add_user(new_user, new_svcb, password)
+
+api.add_resource(AddUser, "/adduser")
+
+class DeleteUser(Resource):
+    def get(self):
+        query_args = request.args
+        password = int(query_args["password"])
+        del_user = query_args["del_user"].lower().title()
+        return delete_user(del_user, password)
+
+api.add_resource(DeleteUser, "/deluser")
+
+class QueueCountAdd(Resource):
+    def get(self):
+        query_args = request.args
+        queue_count = query_args["Q_COUNT"]
+        for count in queue_count.split(" "):
+            if count.startswith("."):
+                reservation_on_queue = count[-3:].strip(".")
+        return queue_80_add(reservation_on_queue)
+
+api.add_resource(QueueCountAdd, "/queuecountadd")
+
+class QueueCountCheck(Resource):
+    def get(self):
+        return queue_80_check()
+
+api.add_resource(QueueCountCheck, "/queuecountcheck")
+
+class QueueCount(Resource):
+    def get(self):
+        query_args = request.args
+        queue_count = query_args["Q_COUNT"]
+        for count in queue_count.split(" "):
+            if count.startswith("."):
+                reservation_on_queue = count[-3:].strip(".")
+        return [reservation_on_queue]
+
+api.add_resource(QueueCount, "/queuecount")
+
+@app.route('/download')
+def download_file():
+    query_args = request.args
+    start = query_args["start"]
+    end = query_args["end"]
+    filter_by_date(start, end)
+    path = "temporary_data/filtered_statistics.xls"
+    return send_file(path, as_attachment=True)
+
+
 if __name__ == "__main__":
-    #todo debug
-    app.run(debug=True)
+    #todo debug local
+    # app.run(debug=True)
+    # neprodukční server
+    app.run(debug=True, host="0.0.0.0", port=8080)
+
+

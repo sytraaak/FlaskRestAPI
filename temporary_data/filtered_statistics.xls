@@ -1,0 +1,8 @@
+Date,Name,Issued,Reservation,Lowcost,Canceled,Fraud
+2022-10-03,Anna Pospisilova,0,0,0,0,0
+2022-10-03,Anna Zemanova,59,100,3,23,5
+2022-10-03,Veronika Lolova,67,99,2,22,4
+2022-10-04,Anna Pospisilova,0,0,0,0,0
+2022-10-04,Anna Zemanova,18,63,1,2,12
+2022-10-04,Veronika Lolova,18,63,1,1,9
+,Součty: ,162,325,7,48,30
